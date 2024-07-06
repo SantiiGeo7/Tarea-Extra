@@ -1,0 +1,159 @@
+---
+title: "tarea extra"
+author: Santiago Rodriguez y Sofia Briones
+format: 
+  dashboard:
+    orientation: rows
+---
+
+```{r}
+#| label: carga-paquetes
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(sf)
+library(leaflet)
+library(leaflet.extras)
+library(leafem)
+library(viridisLite)
+library(plotly)
+```
+
+```{r}
+#| label: carga-datos
+#| message: false
+#| warning: false
+
+especies_reptiles <- 
+  read.csv("especies-reptiles.csv")
+
+registros_reptiles <-
+  st_read("registros-reptiles.csv",
+          options = c(
+      "X_POSSIBLE_NAMES=decimalLongitude", 
+      "Y_POSSIBLE_NAMES=decimalLatitude"   
+          ), quiet = TRUE
+          )
+
+regiones <-
+  st_read("regiones-socioeconomicas.gpkg",
+          options = c(
+      "X_POSSIBLE_NAMES=decimalLongitude", 
+      "Y_POSSIBLE_NAMES=decimalLatitude"   
+          ), quiet = TRUE)
+
+st_crs(registros_reptiles) <- 4326
+
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+registros_squamata <-
+  registros_reptiles |>
+  filter(class == "Squamata")
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+squamata_union_regiones <-
+  st_join(
+    x = registros_squamata,
+    y = dplyr::select(regiones, codigo),
+    join = st_within
+  )
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+riqueza_especie_squamata_regiones <-
+  squamata_union_regiones |>
+  st_drop_geometry() |>
+  group_by(codigo) |>
+  summarise(riqueza_especie_squamata = n_distinct(species, na.rm = TRUE))
+
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+regiones_union_riqueza <- 
+  left_join(
+    x = regiones,
+    y = dplyr::select(riqueza_especie_squamata_regiones, codigo, riqueza_especie_squamata),
+    by = "codigo"
+  ) |>
+  replace_na(list(riqueza_especie_squamata = 0))
+
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+# paleta de colores de riqueza de especies 
+colores_riqueza_especies <-
+  colorNumeric(
+    palette = "Reds",
+    domain = regiones_union_riqueza$riqueza_especie_squamata,
+    na.color = "transparent"
+  )
+```
+
+## rows
+
+```{r}
+#| message: false
+#| warning: false
+
+leaflet() |>
+  addTiles(group = "OSM") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales (ESRI World Imagery)"
+  ) |> 
+  addPolygons(
+    data = regiones_union_riqueza,
+    fillColor = ~ colores_riqueza_especies(regiones_union_riqueza$riqueza_especie_squamata),
+    fillOpacity =  0.8,
+        popup = paste(
+      paste("<strong>Region:</strong>", regiones_union_riqueza$region),
+      paste("<strong>Riqueza de especies:</strong>", regiones_union_riqueza$riqueza_especie_squamata),
+      sep = '<br/>'
+  ) )|>
+ addScaleBar(
+    position = "bottomleft", 
+    options = scaleBarOptions(imperial = FALSE)
+  ) |>  
+  addLegend(
+    position = "bottomleft",    
+    pal = colores_riqueza_especies,
+    values = regiones_union_riqueza$riqueza_especie_squamata,
+    title = "Especies de squamata",
+    group = "Squamata"    
+  ) |>  
+  addLayersControl(
+    baseGroups = c(
+      "Mapa general (OpenStreetMap)", 
+      "Imágenes satelitales (ESRI World Imagery)"
+    ),
+  ) |>
+  addResetMapButton() |>
+  addSearchOSM() |>
+  addMouseCoordinates() |>
+  addMiniMap(position = "bottomright") |>
+  addFullscreenControl()
+```
+
+
+
+
+
+
